@@ -4,4 +4,4 @@ src/linux_device_manager/__init__.py
 职责：提供应用包版本信息。
 """
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"

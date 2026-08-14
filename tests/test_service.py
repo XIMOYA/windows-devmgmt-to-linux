@@ -6,7 +6,7 @@ from __future__ import annotations
 import threading
 import unittest
 
-from PySide6.QtCore import QCoreApplication, QEventLoop, QTimer
+from linux_device_manager.qt_compat import QApplication, QEventLoop, QTimer
 
 from linux_device_manager.models import Device, DeviceCategory
 from linux_device_manager.providers.base import DiscoveryResult
@@ -37,7 +37,7 @@ class _FailingProvider:
 class DeviceRefreshServiceTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
-        cls.application = QCoreApplication.instance() or QCoreApplication([])
+        cls.application = QApplication.instance() or QApplication([])
 
     def test_refresh_rejects_concurrent_request_and_sorts_result(self) -> None:
         provider = _BlockingProvider()

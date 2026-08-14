@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import QObject, QRunnable, QThreadPool, Signal, Slot
+from linux_device_manager.qt_compat import QObject, QRunnable, QThreadPool, Signal, Slot
 
 from linux_device_manager.models import Device, sort_devices
 from linux_device_manager.providers.base import DeviceProvider, DiscoveryResult

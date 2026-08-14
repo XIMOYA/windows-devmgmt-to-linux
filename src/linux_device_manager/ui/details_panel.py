@@ -3,16 +3,19 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, Signal
-from PySide6.QtWidgets import (
+from linux_device_manager.qt_compat import (
     QAbstractItemView,
     QFormLayout,
     QGroupBox,
     QHBoxLayout,
+    QHeaderView,
     QLabel,
     QPushButton,
+    QSizePolicy,
     QTableWidget,
     QTableWidgetItem,
+    Qt,
+    Signal,
     QVBoxLayout,
     QWidget,
 )
@@ -49,12 +52,15 @@ class DetailsPanel(QWidget):
         self.summary_group = QGroupBox("常规")
         summary_layout = QFormLayout(self.summary_group)
         summary_layout.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
+        summary_layout.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
         self.category_value = QLabel()
         self.vendor_value = QLabel()
         self.model_value = QLabel()
         self.bus_value = QLabel()
         self.driver_value = QLabel()
         self.location_value = QLabel()
+        self.device_id_value = QLabel()
+        self.source_value = QLabel()
         for label in (
             self.category_value,
             self.vendor_value,
@@ -62,15 +68,24 @@ class DetailsPanel(QWidget):
             self.bus_value,
             self.driver_value,
             self.location_value,
+            self.device_id_value,
+            self.source_value,
         ):
             label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
             label.setWordWrap(True)
+            label.setMinimumWidth(150)
+            label.setSizePolicy(
+                QSizePolicy.Policy.Expanding,
+                QSizePolicy.Policy.Preferred,
+            )
         summary_layout.addRow("设备类别：", self.category_value)
         summary_layout.addRow("厂商：", self.vendor_value)
         summary_layout.addRow("型号：", self.model_value)
         summary_layout.addRow("总线：", self.bus_value)
         summary_layout.addRow("驱动：", self.driver_value)
         summary_layout.addRow("位置：", self.location_value)
+        summary_layout.addRow("设备 ID：", self.device_id_value)
+        summary_layout.addRow("来源：", self.source_value)
         layout.addWidget(self.summary_group)
 
         properties_group = QGroupBox("详细信息")
@@ -80,8 +95,14 @@ class DetailsPanel(QWidget):
         self.properties_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.properties_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.properties_table.setAlternatingRowColors(True)
-        self.properties_table.horizontalHeader().setStretchLastSection(True)
+        self.properties_table.setWordWrap(True)
+        self.properties_table.setTextElideMode(Qt.TextElideMode.ElideNone)
+        self.properties_table.setMinimumHeight(180)
+        header = self.properties_table.horizontalHeader()
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         self.properties_table.verticalHeader().setVisible(False)
+        self.properties_table.verticalHeader().setDefaultSectionSize(26)
         properties_layout.addWidget(self.properties_table)
         layout.addWidget(properties_group, 1)
 
@@ -122,6 +143,8 @@ class DetailsPanel(QWidget):
                 self.bus_value,
                 self.driver_value,
                 self.location_value,
+                self.device_id_value,
+                self.source_value,
             ):
                 label.setText("—")
             self.properties_table.setRowCount(0)
@@ -129,9 +152,12 @@ class DetailsPanel(QWidget):
 
         self.device_name.setText(device.display_name)
         self.device_status.setText(f"状态：{device.summary}")
-        self.device_status.setObjectName(
-            "deviceStatusWarning" if device.status is DeviceStatus.WARNING else "deviceStatusOk"
-        )
+        status_object = {
+            DeviceStatus.WARNING: "deviceStatusWarning",
+            DeviceStatus.UNKNOWN: "deviceStatusUnknown",
+            DeviceStatus.OK: "deviceStatusOk",
+        }[device.status]
+        self.device_status.setObjectName(status_object)
         self._refresh_status_style()
         self.category_value.setText(device.category.label)
         self.vendor_value.setText(device.vendor or "信息不可用")
@@ -139,12 +165,18 @@ class DetailsPanel(QWidget):
         self.bus_value.setText(device.bus or "信息不可用")
         self.driver_value.setText(device.driver or "信息不可用")
         self.location_value.setText(device.location or "信息不可用")
-        items = [("来源路径", device.source_path or "信息不可用"), *device.property_items()]
+        self.device_id_value.setText(device.device_id or "信息不可用")
+        self.source_value.setText(device.source_path or "信息不可用")
+        items = [
+            ("设备 ID", device.device_id or "信息不可用"),
+            ("来源路径", device.source_path or "信息不可用"),
+            *device.property_items(),
+        ]
         self.properties_table.setRowCount(len(items))
         for row, (key, value) in enumerate(items):
             self.properties_table.setItem(row, 0, QTableWidgetItem(key))
             self.properties_table.setItem(row, 1, QTableWidgetItem(value))
-        self.properties_table.resizeColumnsToContents()
+        self.properties_table.resizeRowsToContents()
 
     def _refresh_status_style(self) -> None:
         style = self.device_status.style()

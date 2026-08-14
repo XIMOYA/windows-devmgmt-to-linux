@@ -54,6 +54,33 @@ class ProviderTests(unittest.TestCase):
         disk = next(device for device in result.devices if device.category is DeviceCategory.DISKS)
         self.assertEqual(disk.properties["容量"], "1.00 GiB")
 
+    def test_linux_provider_can_use_injected_pci_command_without_host_leakage(self) -> None:
+        lspci_output = (
+            '0000:02:00.0 "Ethernet controller [0200]" "Fixture Vendor [1234]" '
+            '"Fixture Ethernet [5678]" -p00 "Fixture Board [4321]" "Device [8765]"\n'
+        )
+
+        def runner(command: tuple[str, ...]) -> str:
+            return lspci_output if command[0] == "lspci" else ""
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            proc = root / "proc"
+            sys = root / "sys"
+            proc.mkdir()
+            sys.mkdir()
+            result = LinuxDeviceProvider(
+                sys_root=sys,
+                proc_root=proc,
+                command_runner=runner,
+                use_external_tools=True,
+            ).discover()
+
+        fixture_devices = [device for device in result.devices if "Fixture Ethernet" in device.name]
+        self.assertEqual(len(fixture_devices), 1)
+        self.assertEqual(fixture_devices[0].category, DeviceCategory.NETWORK)
+        self.assertEqual(fixture_devices[0].properties["硬件 ID"], "PCI\\VEN_1234&DEV_5678")
+
 
 if __name__ == "__main__":
     unittest.main()

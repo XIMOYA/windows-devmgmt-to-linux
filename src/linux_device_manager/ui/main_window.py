@@ -3,20 +3,27 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, Signal, Slot
-from PySide6.QtGui import QAction, QCloseEvent, QKeySequence
-from PySide6.QtWidgets import (
+from linux_device_manager.qt_compat import (
+    QAction,
     QApplication,
+    QCloseEvent,
     QDialog,
     QDialogButtonBox,
     QFormLayout,
     QGroupBox,
+    QHBoxLayout,
     QLabel,
+    QKeySequence,
+    QLineEdit,
     QMainWindow,
     QMessageBox,
     QSplitter,
     QTabWidget,
     QTextEdit,
+    QT_BINDING,
+    Qt,
+    Signal,
+    Slot,
     QVBoxLayout,
     QWidget,
 )
@@ -47,8 +54,8 @@ class MainWindow(QMainWindow):
 
     def _set_window_metadata(self) -> None:
         self.setWindowTitle("设备管理器")
-        self.setMinimumSize(900, 580)
-        self.resize(1120, 700)
+        self.setMinimumSize(980, 620)
+        self.resize(1240, 760)
         self.setStyleSheet(WINDOW_STYLE)
 
     def _build_ui(self) -> None:
@@ -58,12 +65,43 @@ class MainWindow(QMainWindow):
 
         splitter = QSplitter(Qt.Orientation.Horizontal)
         splitter.setChildrenCollapsible(False)
+
+        left_panel = QWidget()
+        left_layout = QVBoxLayout(left_panel)
+        left_layout.setContentsMargins(8, 8, 8, 8)
+        left_layout.setSpacing(6)
+        self.tree_title = QLabel("设备")
+        self.tree_title.setObjectName("treeTitle")
+        left_layout.addWidget(self.tree_title)
+        search_row = QHBoxLayout()
+        search_label = QLabel("筛选：")
+        self.search_box = QLineEdit()
+        self.search_box.setClearButtonEnabled(True)
+        self.search_box.setPlaceholderText("名称、厂商、驱动或硬件 ID")
+        self.search_box.setToolTip("按设备名称、厂商、型号、驱动、位置或属性筛选")
+        search_row.addWidget(search_label)
+        search_row.addWidget(self.search_box, 1)
+        left_layout.addLayout(search_row)
         self.device_tree = DeviceTree()
+        left_layout.addWidget(self.device_tree, 1)
+
         self.details_panel = DetailsPanel()
-        splitter.addWidget(self.device_tree)
+        splitter.addWidget(left_panel)
         splitter.addWidget(self.details_panel)
-        splitter.setSizes([370, 730])
-        self.setCentralWidget(splitter)
+        splitter.setSizes([410, 830])
+
+        self.scan_summary = QLabel("正在读取设备信息…")
+        self.scan_summary.setObjectName("scanSummary")
+        self.scan_summary.setWordWrap(True)
+        self.scan_summary.setContentsMargins(10, 7, 10, 7)
+
+        central = QWidget()
+        central_layout = QVBoxLayout(central)
+        central_layout.setContentsMargins(0, 0, 0, 0)
+        central_layout.setSpacing(0)
+        central_layout.addWidget(self.scan_summary)
+        central_layout.addWidget(splitter, 1)
+        self.setCentralWidget(central)
 
         self.statusBar().showMessage("正在读取设备信息…")
 
@@ -120,6 +158,7 @@ class MainWindow(QMainWindow):
         self.copy_action.triggered.connect(self._copy_selected_details)
         self.exit_action.triggered.connect(self.close)
         self.about_action.triggered.connect(self._show_about)
+        self.search_box.textChanged.connect(self.device_tree.set_filter_text)
         self.device_tree.device_selected.connect(self.details_panel.set_device)
         self.device_tree.device_activated.connect(self._show_properties)
         self.details_panel.copy_requested.connect(self._copy_text)
@@ -136,19 +175,44 @@ class MainWindow(QMainWindow):
     @Slot()
     def _on_refresh_started(self) -> None:
         self.refresh_action.setEnabled(False)
+        self.scan_summary.setObjectName("scanSummary")
+        self.scan_summary.setText("正在扫描 Linux 硬件…")
+        self.scan_summary.setToolTip("")
+        self._refresh_scan_summary_style()
         self.statusBar().showMessage("正在扫描设备…")
 
     @Slot(object)
     def _on_refresh_completed(self, result: DiscoveryResult) -> None:
         self.refresh_action.setEnabled(True)
         self.device_tree.set_devices(result.devices)
+        warning_count = sum(
+            1 for device in result.devices if device.status is DeviceStatus.WARNING
+        )
+        mode = "演示数据" if self.mock_mode else "Linux 真机"
         if result.errors:
+            self.scan_summary.setObjectName("scanSummaryWarning")
+            self.scan_summary.setText(
+                f"扫描完成：{len(result.devices)} 个设备 · {warning_count} 个警告 · "
+                f"{len(result.errors)} 项读取提示"
+            )
+            self.scan_summary.setToolTip("\n".join(result.errors))
             self.statusBar().showMessage(
                 f"已发现 {len(result.devices)} 个设备；{len(result.errors)} 项信息读取失败。"
             )
         else:
-            mode = "演示数据" if self.mock_mode else "Linux 硬件"
+            self.scan_summary.setObjectName("scanSummaryOk")
+            self.scan_summary.setText(
+                f"扫描完成：{len(result.devices)} 个设备 · {warning_count} 个警告 · {mode}"
+            )
+            self.scan_summary.setToolTip("所有设备类别均完成读取。")
             self.statusBar().showMessage(f"已发现 {len(result.devices)} 个设备（{mode}）。")
+        self._refresh_scan_summary_style()
+
+    def _refresh_scan_summary_style(self) -> None:
+        style = self.scan_summary.style()
+        style.unpolish(self.scan_summary)
+        style.polish(self.scan_summary)
+        self.scan_summary.update()
 
     def _selected_device(self) -> Device | None:
         return self.device_tree.selected_device
@@ -252,8 +316,9 @@ class MainWindow(QMainWindow):
         QMessageBox.information(
             self,
             "关于设备管理器",
-            "设备管理器 0.1.0\n\n"
+            "设备管理器 0.2.0\n\n"
             "一个给 Linux 用户补上的 Windows 风格硬件查看工具。\n"
+            f"当前 Qt 绑定：{QT_BINDING}\n"
             "当前版本只读展示设备信息，不会修改真实驱动或系统配置。",
         )
 

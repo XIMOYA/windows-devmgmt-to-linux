@@ -6,7 +6,7 @@ from __future__ import annotations
 import argparse
 import sys
 
-from PySide6.QtWidgets import QApplication
+from linux_device_manager.qt_compat import QApplication, QT_BINDING, QStyleFactory
 
 from linux_device_manager.providers.linux import LinuxDeviceProvider
 from linux_device_manager.providers.mock import MockDeviceProvider
@@ -30,6 +30,12 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     application = QApplication.instance() or QApplication(sys.argv)
+    application.setApplicationName("Linux 设备管理器")
+    application.setApplicationDisplayName("设备管理器")
+    application.setOrganizationName("LinuxDeviceManager")
+    if any(name.casefold() == "fusion" for name in QStyleFactory.keys()):
+        application.setStyle(QStyleFactory.create("Fusion"))
+    application.setProperty("qtBinding", QT_BINDING)
     provider = MockDeviceProvider() if args.mock else LinuxDeviceProvider()
     window = MainWindow(provider, mock_mode=args.mock)
     window.show()
