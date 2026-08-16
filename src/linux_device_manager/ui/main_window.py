@@ -1,16 +1,14 @@
 # src/linux_device_manager/ui/main_window.py
-# 设备管理器主窗口：菜单、工具栏、设备树、详情面板和安全的驱动模拟。
+# 设备管理器主窗口：经典设备树、菜单、工具栏和可选详情面板。
 
 from __future__ import annotations
+
+import platform
 
 from linux_device_manager.qt_compat import (
     QAction,
     QApplication,
     QCloseEvent,
-    QDialog,
-    QDialogButtonBox,
-    QFormLayout,
-    QGroupBox,
     QHBoxLayout,
     QLabel,
     QKeySequence,
@@ -18,8 +16,6 @@ from linux_device_manager.qt_compat import (
     QMainWindow,
     QMessageBox,
     QSplitter,
-    QTabWidget,
-    QTextEdit,
     QT_BINDING,
     Qt,
     Signal,
@@ -33,6 +29,8 @@ from linux_device_manager.providers.base import DeviceProvider, DiscoveryResult
 from linux_device_manager.services.device_service import DeviceRefreshService
 from linux_device_manager.ui.details_panel import DetailsPanel
 from linux_device_manager.ui.device_tree import DeviceTree
+from linux_device_manager.ui.driver_wizard import DriverUpdateWizard
+from linux_device_manager.ui.properties_dialog import DevicePropertiesDialog
 from linux_device_manager.ui.styles import WINDOW_STYLE
 
 
@@ -45,6 +43,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.provider = provider
         self.mock_mode = mock_mode
+        self._host_name = "DEVMGMT-LINUX" if mock_mode else platform.node() or "此电脑"
         self.service = DeviceRefreshService(provider, self)
         self.refresh_action: QAction
         self._build_ui()
@@ -54,8 +53,8 @@ class MainWindow(QMainWindow):
 
     def _set_window_metadata(self) -> None:
         self.setWindowTitle("设备管理器")
-        self.setMinimumSize(980, 620)
-        self.resize(1240, 760)
+        self.setMinimumSize(760, 520)
+        self.resize(980, 680)
         self.setStyleSheet(WINDOW_STYLE)
 
     def _build_ui(self) -> None:
@@ -68,32 +67,36 @@ class MainWindow(QMainWindow):
 
         left_panel = QWidget()
         left_layout = QVBoxLayout(left_panel)
-        left_layout.setContentsMargins(8, 8, 8, 8)
-        left_layout.setSpacing(6)
-        self.tree_title = QLabel("设备")
+        left_layout.setContentsMargins(4, 4, 4, 4)
+        left_layout.setSpacing(3)
+        self.tree_title = QLabel("设备管理器")
         self.tree_title.setObjectName("treeTitle")
         left_layout.addWidget(self.tree_title)
-        search_row = QHBoxLayout()
-        search_label = QLabel("筛选：")
+
+        self.search_row_widget = QWidget()
+        search_row = QHBoxLayout(self.search_row_widget)
+        search_row.setContentsMargins(0, 0, 0, 2)
+        search_row.setSpacing(4)
+        search_row.addWidget(QLabel("筛选："))
         self.search_box = QLineEdit()
         self.search_box.setClearButtonEnabled(True)
         self.search_box.setPlaceholderText("名称、厂商、驱动或硬件 ID")
         self.search_box.setToolTip("按设备名称、厂商、型号、驱动、位置或属性筛选")
-        search_row.addWidget(search_label)
         search_row.addWidget(self.search_box, 1)
-        left_layout.addLayout(search_row)
+        left_layout.addWidget(self.search_row_widget)
+
         self.device_tree = DeviceTree()
         left_layout.addWidget(self.device_tree, 1)
 
         self.details_panel = DetailsPanel()
         splitter.addWidget(left_panel)
         splitter.addWidget(self.details_panel)
-        splitter.setSizes([410, 830])
+        splitter.setSizes([980, 420])
 
         self.scan_summary = QLabel("正在读取设备信息…")
         self.scan_summary.setObjectName("scanSummary")
         self.scan_summary.setWordWrap(True)
-        self.scan_summary.setContentsMargins(10, 7, 10, 7)
+        self.scan_summary.setContentsMargins(8, 4, 8, 4)
 
         central = QWidget()
         central_layout = QVBoxLayout(central)
@@ -103,6 +106,9 @@ class MainWindow(QMainWindow):
         central_layout.addWidget(splitter, 1)
         self.setCentralWidget(central)
 
+        self.search_row_widget.hide()
+        self.scan_summary.hide()
+        self.details_panel.hide()
         self.statusBar().showMessage("正在读取设备信息…")
 
     def _build_actions(self) -> None:
@@ -114,10 +120,22 @@ class MainWindow(QMainWindow):
         self.properties_action.setStatusTip("查看选中设备的属性")
 
         self.driver_action = QAction("更新驱动", self)
-        self.driver_action.setStatusTip("检查选中设备的驱动状态（仅模拟）")
+        self.driver_action.setStatusTip("打开安全模拟的更新驱动向导")
 
         self.copy_action = QAction("复制详情", self)
         self.copy_action.setStatusTip("复制选中设备的详细信息")
+
+        self.details_action = QAction("详细信息面板", self)
+        self.details_action.setCheckable(True)
+        self.details_action.setStatusTip("显示或隐藏辅助详情面板")
+
+        self.filter_action = QAction("设备筛选", self)
+        self.filter_action.setCheckable(True)
+        self.filter_action.setStatusTip("显示或隐藏设备筛选框")
+
+        self.summary_action = QAction("扫描摘要", self)
+        self.summary_action.setCheckable(True)
+        self.summary_action.setStatusTip("显示或隐藏扫描摘要")
 
         self.exit_action = QAction("退出", self)
         self.exit_action.setShortcut(QKeySequence("Ctrl+Q"))
@@ -134,6 +152,10 @@ class MainWindow(QMainWindow):
         view_menu = self.menuBar().addMenu("查看")
         view_menu.addAction(self.properties_action)
         view_menu.addAction(self.copy_action)
+        view_menu.addSeparator()
+        view_menu.addAction(self.details_action)
+        view_menu.addAction(self.filter_action)
+        view_menu.addAction(self.summary_action)
 
         tools_menu = self.menuBar().addMenu("工具")
         tools_menu.addAction(self.driver_action)
@@ -158,11 +180,14 @@ class MainWindow(QMainWindow):
         self.copy_action.triggered.connect(self._copy_selected_details)
         self.exit_action.triggered.connect(self.close)
         self.about_action.triggered.connect(self._show_about)
+        self.details_action.toggled.connect(self.details_panel.setVisible)
+        self.filter_action.toggled.connect(self.search_row_widget.setVisible)
+        self.summary_action.toggled.connect(self.scan_summary.setVisible)
         self.search_box.textChanged.connect(self.device_tree.set_filter_text)
         self.device_tree.device_selected.connect(self.details_panel.set_device)
         self.device_tree.device_activated.connect(self._show_properties)
         self.details_panel.copy_requested.connect(self._copy_text)
-        self.details_panel.driver_update_requested.connect(self._show_driver_result)
+        self.details_panel.driver_update_requested.connect(self._show_driver_wizard)
         self.details_panel.properties_requested.connect(self._show_properties)
         self.service.started.connect(self._on_refresh_started)
         self.service.completed.connect(self._on_refresh_completed)
@@ -184,10 +209,8 @@ class MainWindow(QMainWindow):
     @Slot(object)
     def _on_refresh_completed(self, result: DiscoveryResult) -> None:
         self.refresh_action.setEnabled(True)
-        self.device_tree.set_devices(result.devices)
-        warning_count = sum(
-            1 for device in result.devices if device.status is DeviceStatus.WARNING
-        )
+        self.device_tree.set_devices(result.devices, host_name=self._host_name)
+        warning_count = sum(1 for device in result.devices if device.status is not DeviceStatus.OK)
         mode = "演示数据" if self.mock_mode else "Linux 真机"
         if result.errors:
             self.scan_summary.setObjectName("scanSummaryWarning")
@@ -227,44 +250,9 @@ class MainWindow(QMainWindow):
 
     @Slot(object)
     def _show_properties(self, device: Device) -> None:
-        dialog = QDialog(self)
-        dialog.setWindowTitle(f"{device.name} 属性")
-        dialog.setMinimumSize(610, 430)
-        layout = QVBoxLayout(dialog)
-
-        tabs = QTabWidget()
-        general_tab = QWidget()
-        general_layout = QFormLayout(general_tab)
-        general_layout.addRow("设备类型：", QLabel(device.category.label))
-        general_layout.addRow("制造商：", QLabel(device.vendor or "信息不可用"))
-        general_layout.addRow("位置：", QLabel(device.location or "信息不可用"))
-        general_layout.addRow("设备状态：", QLabel(device.summary))
-        tabs.addTab(general_tab, "常规")
-
-        details_tab = QWidget()
-        details_layout = QVBoxLayout(details_tab)
-        details_text = QTextEdit()
-        details_text.setReadOnly(True)
-        details_text.setPlainText(device.as_text())
-        details_layout.addWidget(details_text)
-        tabs.addTab(details_tab, "详细信息")
-
-        driver_tab = QWidget()
-        driver_layout = QVBoxLayout(driver_tab)
-        driver_group = QGroupBox("驱动程序信息")
-        driver_form = QFormLayout(driver_group)
-        driver_form.addRow("提供商：", QLabel(device.vendor or "Linux 内核/发行版"))
-        driver_form.addRow("驱动程序：", QLabel(device.driver or "信息不可用"))
-        driver_form.addRow("状态：", QLabel("只读展示，未执行驱动操作"))
-        driver_layout.addWidget(driver_group)
-        driver_layout.addStretch(1)
-        tabs.addTab(driver_tab, "驱动程序")
-
-        layout.addWidget(tabs)
-        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
-        buttons.rejected.connect(dialog.reject)
-        buttons.accepted.connect(dialog.accept)
-        layout.addWidget(buttons)
+        dialog = DevicePropertiesDialog(device, self)
+        dialog.copy_requested.connect(self._copy_text)
+        dialog.driver_update_requested.connect(self._show_driver_wizard)
         dialog.exec()
 
     @Slot()
@@ -273,27 +261,11 @@ class MainWindow(QMainWindow):
         if device is None:
             self._show_no_selection()
             return
-        self._show_driver_result(device)
+        self._show_driver_wizard(device)
 
     @Slot(object)
-    def _show_driver_result(self, device: Device) -> None:
-        if device.status is DeviceStatus.WARNING:
-            title = "更新驱动程序"
-            message = (
-                f"Windows 设备管理器已完成搜索。\n\n"
-                f"找不到设备“{device.name}”的驱动程序。\n"
-                "Linux 下的驱动由内核或发行版软件包管理器负责。"
-            )
-            icon = QMessageBox.Icon.Warning
-        else:
-            title = "更新驱动程序"
-            message = (
-                f"已是最佳驱动程序。\n\n"
-                f"设备“{device.name}”当前使用：{device.driver or '内核默认驱动'}\n"
-                "本次操作为安全模拟，不会安装、卸载或修改真实驱动。"
-            )
-            icon = QMessageBox.Icon.Information
-        QMessageBox(icon, title, message, QMessageBox.StandardButton.Ok, self).exec()
+    def _show_driver_wizard(self, device: Device) -> None:
+        DriverUpdateWizard(device, self).exec()
 
     @Slot()
     def _copy_selected_details(self) -> None:

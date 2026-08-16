@@ -60,6 +60,8 @@ class DeviceTree(QTreeWidget):
         self._category_items: dict[DeviceCategory, QTreeWidgetItem] = {}
         self._device_items: dict[str, QTreeWidgetItem] = {}
         self._filter_text = ""
+        self._root_item: QTreeWidgetItem | None = None
+        self._host_item: QTreeWidgetItem | None = None
         icon_styles = {
             DeviceCategory.PROCESSORS: ("#4472c4", "CPU"),
             DeviceCategory.DISPLAY: ("#7654a6", "GPU"),
@@ -77,7 +79,7 @@ class DeviceTree(QTreeWidget):
         self._warning_icon = _make_icon("#c4771a", "!")
         self._unknown_icon = _make_icon("#7d8792", "?")
 
-    def set_devices(self, devices: list[Device]) -> None:
+    def set_devices(self, devices: list[Device], host_name: str = "此电脑") -> None:
         expanded_categories = {
             category: item.isExpanded() for category, item in self._category_items.items()
         }
@@ -89,14 +91,26 @@ class DeviceTree(QTreeWidget):
         for device in devices:
             grouped.setdefault(device.category, []).append(device)
 
+        self._root_item = QTreeWidgetItem(["设备管理器"])
+        self._root_item.setIcon(0, self._category_icons[DeviceCategory.SYSTEM])
+        self._root_item.setData(0, _ROLE_DEVICE, None)
+        self._root_item.setExpanded(True)
+        self.addTopLevelItem(self._root_item)
+
+        self._host_item = QTreeWidgetItem([host_name or "此电脑"])
+        self._host_item.setIcon(0, self._category_icons[DeviceCategory.SYSTEM])
+        self._host_item.setData(0, _ROLE_DEVICE, None)
+        self._host_item.setExpanded(True)
+        self._root_item.addChild(self._host_item)
+
         for category in CATEGORY_ORDER:
             category_devices = grouped.get(category, [])
-            category_item = QTreeWidgetItem([f"{category.label} ({len(category_devices)})"])
+            category_item = QTreeWidgetItem([category.label])
             category_item.setIcon(0, self._category_icons[category])
             category_item.setData(0, _ROLE_DEVICE, None)
             category_item.setToolTip(0, f"{category.label}：{len(category_devices)} 个设备")
             category_item.setExpanded(expanded_categories.get(category, True))
-            self.addTopLevelItem(category_item)
+            self._host_item.addChild(category_item)
             self._category_items[category] = category_item
             for device in category_devices:
                 device_item = QTreeWidgetItem([device.display_name])
@@ -137,6 +151,13 @@ class DeviceTree(QTreeWidget):
             category_item.setHidden(bool(self._filter_text) and visible_count == 0)
             if self._filter_text and visible_count:
                 category_item.setExpanded(True)
+        if self._host_item is not None and self._root_item is not None:
+            visible_categories = sum(
+                not self._category_items[category].isHidden() for category in CATEGORY_ORDER
+            )
+            hidden = bool(self._filter_text) and visible_categories == 0
+            self._host_item.setHidden(hidden)
+            self._root_item.setHidden(hidden)
         current = self.currentItem()
         if current is not None and not current.isHidden():
             return
